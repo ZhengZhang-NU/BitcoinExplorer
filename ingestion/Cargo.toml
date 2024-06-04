@@ -1,0 +1,11 @@
+[package]
+name = "ingestion"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+diesel = { version = "1.4", features = ["postgres", "chrono"] }
+dotenv = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bitcoincore-rpc = "0.19.0"
