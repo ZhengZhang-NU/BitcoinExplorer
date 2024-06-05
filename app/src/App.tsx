@@ -1,10 +1,10 @@
 import React from 'react';
-import BlockHeight from './BlockHeight';
+import BlockHeightComponent from './BlockHeightComponent';
 
 const App: React.FC = () => {
     return (
         <div className="App">
-            <BlockHeight />
+            <BlockHeightComponent />
         </div>
     );
 };

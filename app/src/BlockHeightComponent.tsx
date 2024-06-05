@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import './BlockHeight.css';
 
+
 interface BlockHeight {
     id: number;
     height: number;
 }
 
-const BlockHeight: React.FC = () => {
+const BlockHeightComponent: React.FC = () => {
     const [blockHeights, setBlockHeights] = useState<BlockHeight[]>([]);
 
     useEffect(() => {
@@ -16,7 +17,7 @@ const BlockHeight: React.FC = () => {
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const data = await response.json() as BlockHeight[];
+                const data = await response.json();
                 setBlockHeights(data);
             } catch (error) {
                 console.error('Error fetching block heights:', error);
@@ -40,10 +41,10 @@ const BlockHeight: React.FC = () => {
                 </tr>
                 </thead>
                 <tbody>
-                {blockHeights.map((blockHeight) => (
-                    <tr key={blockHeight.id}>
-                        <td>{blockHeight.id}</td>
-                        <td>{blockHeight.height}</td>
+                {blockHeights.map((block) => (
+                    <tr key={block.id}>
+                        <td>{block.id}</td>
+                        <td>{block.height}</td>
                     </tr>
                 ))}
                 </tbody>
@@ -52,4 +53,4 @@ const BlockHeight: React.FC = () => {
     );
 };
 
-export default BlockHeight;
+export default BlockHeightComponent;

@@ -4,7 +4,7 @@ use dotenv::dotenv;
 use serde::Serialize;
 use std::env;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{self, Duration};
 use warp::Filter;
 
 mod schema;
@@ -17,11 +17,6 @@ pub struct BlockHeight {
     pub height: i32,
 }
 
-#[derive(Debug)]
-struct CustomError(String);
-
-impl warp::reject::Reject for CustomError {}
-
 #[tokio::main]
 async fn main() {
     dotenv().ok();
@@ -29,18 +24,9 @@ async fn main() {
     let manager = ConnectionManager::<PgConnection>::new(&database_url);
     let pool = Arc::new(r2d2::Pool::builder().build(manager).expect("Failed to create pool"));
 
-    let rpc = reqwest::Client::new();
-    let pool_clone = pool.clone();
+    let rpc_url = "https://blockstream.info/api/blocks/tip/height";
 
-    tokio::spawn(async move {
-        loop {
-            match fetch_and_store_block_height(&rpc, &pool_clone).await {
-                Ok(_) => println!("Successfully inserted new block height"),
-                Err(e) => eprintln!("Error inserting block height: {:?}", e),
-            }
-            sleep(Duration::from_secs(10)).await;
-        }
-    });
+    tokio::spawn(fetch_and_store_block_height(pool.clone(), rpc_url.to_string()));
 
     let block_height_route = warp::path("block-height")
         .and(warp::get())
@@ -59,66 +45,63 @@ fn with_db(
     warp::any().map(move || pool.clone())
 }
 
-async fn fetch_and_store_block_height(
-    rpc: &reqwest::Client,
-    pool: &Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
-) -> Result<(), warp::Rejection> {
-    let response = rpc
-        .get("https://blockchain.info/q/getblockcount")
-        .send()
-        .await
-        .map_err(|e| warp::reject::custom(CustomError(format!("API request failed: {:?}", e))))?;
-
-    if !response.status().is_success() {
-        return Err(warp::reject::custom(CustomError(format!(
-            "API request failed with status: {}",
-            response.status()
-        ))));
-    }
-
-    let block_height: i32 = response
-        .text()
-        .await
-        .map_err(|e| warp::reject::custom(CustomError(format!("Invalid response: {:?}", e))))?
-        .parse()
-        .map_err(|e| warp::reject::custom(CustomError(format!("Invalid block height: {:?}", e))))?;
-
-    println!("API response: {}", block_height);
-
-    let mut conn = pool.get().map_err(|e| warp::reject::custom(CustomError(format!("DB pool error: {:?}", e))))?;
-
-    let latest_height: Option<BlockHeight> = block_heights::table
-        .order(block_heights::id.desc())
-        .first::<BlockHeight>(&mut conn)
-        .optional()
-        .map_err(|e| warp::reject::custom(CustomError(format!("DB query error: {:?}", e))))?;
-
-    if let Some(latest) = &latest_height {
-        if latest.height == block_height {
-            println!("Block height {} is already the latest, skipping insert.", block_height);
-            return Ok(());
-        }
-    }
-
-    let new_id = latest_height.as_ref().map_or(1, |latest| latest.id + 1);
-    let new_height = BlockHeight { id: new_id, height: block_height };
-
-    diesel::insert_into(block_heights::table)
-        .values(&new_height)
-        .execute(&mut conn)
-        .map_err(|e| warp::reject::custom(CustomError(format!("DB insert error: {:?}", e))))?;
-
-    Ok(())
-}
-
 async fn handle_get_block_height(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    let mut conn = pool.get().map_err(|e| warp::reject::custom(CustomError(format!("DB pool error: {:?}", e))))?;
+    let mut conn = pool.get().expect("Failed to get connection from pool");
     let results: Vec<BlockHeight> = block_heights::table
         .order(block_heights::id.desc())
         .load::<BlockHeight>(&mut conn)
-        .map_err(|e| warp::reject::custom(CustomError(format!("DB query error: {:?}", e))))?;
+        .expect("Error loading block heights");
 
     Ok(warp::reply::json(&results))
+}
+
+async fn fetch_and_store_block_height(
+    pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
+    rpc_url: String,
+) {
+    let client = reqwest::Client::new();
+
+    let mut interval = time::interval(Duration::from_secs(10));
+    loop {
+        interval.tick().await;
+        let response = client.get(&rpc_url).send().await;
+        match response {
+            Ok(res) => {
+                let height: u32 = match res.json().await {
+                    Ok(height) => height,
+                    Err(e) => {
+                        eprintln!("Error parsing response: {}", e);
+                        continue;
+                    }
+                };
+
+                let mut conn = pool.get().expect("Failed to get connection from pool");
+                let latest_height: Option<BlockHeight> = block_heights::table
+                    .order(block_heights::id.desc())
+                    .first(&mut conn)
+                    .optional()
+                    .expect("Error querying latest block height");
+
+                let new_id = latest_height.as_ref().map_or(1, |latest| latest.id + 1);
+
+                let new_height = BlockHeight {
+                    id: new_id,
+                    height: height as i32,
+                };
+
+                match diesel::insert_into(block_heights::table)
+                    .values(&new_height)
+                    .execute(&mut conn)
+                {
+                    Ok(_) => println!("Successfully inserted new block height"),
+                    Err(e) => eprintln!("Error inserting block height: {}", e),
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to get block height: {}", e);
+            }
+        }
+    }
 }
