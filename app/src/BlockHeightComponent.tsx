@@ -24,10 +24,10 @@ const BlockHeightComponent: React.FC = () => {
             }
         };
 
-        const intervalId = setInterval(fetchBlockHeights, 10000); // 每10秒获取一次
-        fetchBlockHeights(); // 初始调用
+        const intervalId = setInterval(fetchBlockHeights, 10000);
+        fetchBlockHeights();
 
-        return () => clearInterval(intervalId); // 清除定时器
+        return () => clearInterval(intervalId);
     }, []);
 
     return (
