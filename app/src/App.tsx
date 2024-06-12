@@ -1,4 +1,3 @@
-// App.tsx
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import BlockHeightComponent from './BlockHeightComponent';

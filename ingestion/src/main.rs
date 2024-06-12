@@ -54,6 +54,7 @@ pub struct TransactionOutput {
     pub value: i64,
 }
 
+
 #[derive(Deserialize)]
 struct ApiBlockInfo {
     id: String,
@@ -83,16 +84,17 @@ struct ApiTransaction {
 #[derive(Deserialize)]
 struct ApiTransactionInput {
     txid: String,
-    vout: i32,
+    vout: u32,
     sequence: i64,
 }
 
 #[derive(Deserialize)]
 struct ApiTransactionOutput {
     value: f64,
-    n: i32,
-    script_pub_key: ApiScriptPubKey,
+    n: Option<u32>,
+    script_pub_key: Option<ApiScriptPubKey>,
 }
+
 
 #[derive(Deserialize)]
 struct ApiScriptPubKey {
@@ -203,8 +205,6 @@ async fn handle_get_block_detail(
         Ok(not_found)
     }
 }
-
-
 async fn fetch_and_store_block_info(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
     height_url: String,
@@ -293,12 +293,11 @@ async fn fetch_and_store_block_info(
                                                     match client.get(&txs_url).send().await {
                                                         Ok(txs_res) if txs_res.status().is_success() => {
                                                             let txs_text = txs_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
-                                                            println!("Fetched transactions: {}", txs_text);
+                                                            println!("Fetched transactions for block hash: {}", hash_info.id);
                                                             match serde_json::from_str::<Vec<ApiTransaction>>(&txs_text) {
                                                                 Ok(txs) => {
-                                                                    println!("Processing {} transactions", txs.len());
+                                                                    println!("Processing transactions");
                                                                     for tx in txs {
-                                                                        println!("Processing transaction: {}", tx.txid);
                                                                         let latest_tx: Option<Transaction> = transactions::table
                                                                             .order(transactions::id.desc())
                                                                             .first(&mut conn)
@@ -326,7 +325,6 @@ async fn fetch_and_store_block_info(
 
                                                                         // 处理并存储交易输入
                                                                         for vin in tx.vin {
-                                                                            println!("Processing transaction input: {}", vin.txid);
                                                                             let latest_input: Option<TransactionInput> = transaction_inputs::table
                                                                                 .order(transaction_inputs::id.desc())
                                                                                 .first(&mut conn)
@@ -353,7 +351,6 @@ async fn fetch_and_store_block_info(
 
                                                                         // 处理并存储交易输出
                                                                         for vout in tx.vout {
-                                                                            println!("Processing transaction output: {}", vout.script_pub_key.addresses.join(", "));
                                                                             let latest_output: Option<TransactionOutput> = transaction_outputs::table
                                                                                 .order(transaction_outputs::id.desc())
                                                                                 .first(&mut conn)
@@ -362,10 +359,15 @@ async fn fetch_and_store_block_info(
 
                                                                             let new_output_id = latest_output.as_ref().map_or(1, |latest| latest.id + 1);
 
+                                                                            let address = vout.script_pub_key
+                                                                                .as_ref()
+                                                                                .map(|script| script.addresses.join(", "))
+                                                                                .unwrap_or_default();
+
                                                                             let new_output = TransactionOutput {
                                                                                 id: new_output_id,
                                                                                 transaction_id: new_tx_id,
-                                                                                address: vout.script_pub_key.addresses.join(", "),
+                                                                                address,
                                                                                 value: (vout.value * 100000000.0) as i64,  // Convert to satoshi
                                                                             };
 
@@ -377,6 +379,8 @@ async fn fetch_and_store_block_info(
                                                                                 Err(e) => eprintln!("Error inserting transaction output: {}", e),
                                                                             }
                                                                         }
+
+
                                                                     }
                                                                 }
                                                                 Err(e) => {
@@ -398,7 +402,8 @@ async fn fetch_and_store_block_info(
                                                     eprintln!("Error parsing block response: {}, response text: {}", e, block_text);
                                                 }
                                             }
-                                        }                                        Ok(block_res) => {
+                                        }
+                                        Ok(block_res) => {
                                             let status = block_res.status();
                                             let text = block_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
                                             eprintln!("Failed to get block info. HTTP Status: {}, response text: {}", status, text);
@@ -417,7 +422,6 @@ async fn fetch_and_store_block_info(
                                     eprintln!("Failed to get block hash: {}", e);
                                 }
                             }
-
                         }
                         Err(e) => {
                             eprintln!("Error parsing response: {}, response text: {}", e, height_text);
