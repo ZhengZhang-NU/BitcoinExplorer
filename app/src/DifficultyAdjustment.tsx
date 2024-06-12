@@ -1,33 +1,44 @@
-import React, { useEffect, useState } from "react";
+// DifficultyAdjustment.tsx
+import React, { useEffect, useState } from 'react';
 
-interface DifficultyAdjustment {
-    adjustment: number;
-    next_adjustment: string;
+interface DifficultyAdjustmentData {
+    timestamp: number;
+    difficulty: number;
 }
 
 const DifficultyAdjustment: React.FC = () => {
-    const [adjustment, setAdjustment] = useState<DifficultyAdjustment | null>(null);
+    const [difficulties, setDifficulties] = useState<DifficultyAdjustmentData[]>([]);
 
     useEffect(() => {
-        const fetchAdjustment = async () => {
-            const response = await fetch("http://localhost:8000/difficulty-adjustment");
-            const data = await response.json();
-            setAdjustment(data);
-        };
-        fetchAdjustment();
+        fetch('/api/difficulty-adjustment')
+            .then(response => response.json())
+            .then(data => setDifficulties(data))
+            .catch(error => console.error('Error fetching difficulty adjustment data:', error));
     }, []);
-
-    if (!adjustment) {
-        return <div>Loading...</div>;
-    }
 
     return (
         <div>
-            <h2>Difficulty Adjustment</h2>
-            <div>
-                <p>Current Adjustment: {adjustment.adjustment}%</p>
-                <p>Next Adjustment in: {adjustment.next_adjustment}</p>
-            </div>
+            <h1>Difficulty Adjustment</h1>
+            {difficulties.length > 0 ? (
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Difficulty</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {difficulties.map((difficulty, index) => (
+                        <tr key={index}>
+                            <td>{new Date(difficulty.timestamp * 1000).toLocaleString()}</td>
+                            <td>{difficulty.difficulty}</td>
+                        </tr>
+                    ))}
+                    </tbody>
+                </table>
+            ) : (
+                <p>Loading...</p>
+            )}
         </div>
     );
 };

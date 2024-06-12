@@ -1,4 +1,3 @@
-
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
 use dotenv::dotenv;
@@ -8,17 +7,10 @@ use std::sync::Arc;
 use tokio::time::{self, Duration};
 use tokio::sync::Mutex;
 use warp::Filter;
-use chrono::{NaiveDateTime, Utc, TimeZone};
+use chrono::{NaiveDateTime, TimeZone, Utc};
 
 mod schema;
-use schema::{block_height, block_info, transactions, transaction_inputs, transaction_outputs};
-
-#[derive(Queryable, Identifiable, Insertable, Debug, AsChangeset, Serialize)]
-#[diesel(table_name = block_height)]
-pub struct BlockHeight {
-    pub id: i32,
-    pub height: Option<i32>,
-}
+use schema::{block_info, transactions, transaction_inputs, transaction_outputs};
 
 #[derive(Queryable, Identifiable, Insertable, Debug, AsChangeset, Serialize)]
 #[diesel(table_name = block_info)]
@@ -60,14 +52,6 @@ pub struct TransactionOutput {
     pub transaction_id: i32,
     pub address: String,
     pub value: i64,
-}
-
-#[derive(Serialize)]
-struct BlockDetailData {
-    block_info: BlockInfo,
-    transactions: Vec<Transaction>,
-    inputs: Vec<TransactionInput>,
-    outputs: Vec<TransactionOutput>,
 }
 
 #[derive(Deserialize)]
@@ -122,16 +106,25 @@ struct BlockHashResponse {
     id: String,
 }
 
+#[derive(Serialize)]
+struct BlockDetailData {
+    block_info: BlockInfo,
+    transactions: Vec<Transaction>,
+    inputs: Vec<TransactionInput>,
+    outputs: Vec<TransactionOutput>,
+}
+
+
 #[tokio::main]
 async fn main() {
-    dotenv().ok();  // Load environment variables from .env file
+    dotenv().ok();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<PgConnection>::new(&database_url);
     let pool = Arc::new(r2d2::Pool::builder().build(manager).expect("Failed to create pool"));
 
     let height_url = "https://blockstream.info/api/blocks/tip/height";
+    let is_fetching = Arc::new(Mutex::new(false));
 
-    let is_fetching = Arc::new(Mutex::new(false));  // The Mutex to control concurrent access
     tokio::spawn(fetch_and_store_block_info(pool.clone(), height_url.to_string(), is_fetching.clone()));
 
     let block_info_route = warp::path("block-info")
@@ -154,7 +147,7 @@ async fn main() {
 fn with_db(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
 ) -> impl Filter<Extract = (Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || pool.clone())  // Clone database pool for warp route
+    warp::any().map(move || pool.clone())
 }
 
 async fn handle_get_block_info(
@@ -166,7 +159,7 @@ async fn handle_get_block_info(
         .load::<BlockInfo>(&mut conn)
         .expect("Error loading block info");
 
-    Ok(warp::reply::json(&results))  // Return results as JSON
+    Ok(warp::reply::json(&results))
 }
 
 async fn handle_get_block_detail(
@@ -211,40 +204,47 @@ async fn handle_get_block_detail(
     }
 }
 
+
 async fn fetch_and_store_block_info(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
     height_url: String,
     is_fetching: Arc<Mutex<bool>>,
 ) {
-    let client = reqwest::Client::new();  // HTTP client for fetching data
+    let client = reqwest::Client::new();
 
-    let mut interval = time::interval(Duration::from_secs(10));  // Interval for periodic fetching
+    let mut interval = time::interval(Duration::from_secs(10));
     loop {
         interval.tick().await;
 
         let mut is_fetching_guard = is_fetching.lock().await;
         if *is_fetching_guard {
-            continue;  // Skip if already fetching
+            continue;
         }
         *is_fetching_guard = true;
 
-        let response = client.get(&height_url).send().await;  // Send HTTP GET request
+        println!("Fetching block height");
+        let response = client.get(&height_url).send().await;
         match response {
             Ok(res) => {
-                if res.status().is_success() {  // Check if HTTP status is success
+                if res.status().is_success() {
                     let height_text = res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
+                    println!("Fetched block height: {}", height_text);
                     match height_text.trim().parse::<i32>() {
                         Ok(height) => {
                             let hash_url = format!("https://blockstream.info/api/block-height/{}", height);
+                            println!("Fetching block hash for height: {}", height);
                             match client.get(&hash_url).send().await {
                                 Ok(hash_res) if hash_res.status().is_success() => {
                                     let hash_text = hash_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
                                     let hash_info = BlockHashResponse { id: hash_text.trim().to_string() };
+                                    println!("Fetched block hash: {}", hash_info.id);
 
                                     let block_url = format!("https://blockstream.info/api/block/{}", hash_info.id);
+                                    println!("Fetching block info for hash: {}", hash_info.id);
                                     match client.get(&block_url).send().await {
                                         Ok(block_res) if block_res.status().is_success() => {
                                             let block_text = block_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
+                                            println!("Fetched block info: {}", block_text);
                                             match serde_json::from_str::<ApiBlockInfo>(&block_text) {
                                                 Ok(api_block_info) => {
                                                     let mut conn = pool.get().expect("Failed to get connection from pool");
@@ -256,9 +256,7 @@ async fn fetch_and_store_block_info(
                                                         .optional()
                                                         .expect("Error querying block info");
 
-                                                    if existing_block.is_some() {
-                                                        println!("Block height {} already exists, skipping insertion.", api_block_info.height);
-                                                    } else {
+                                                    if existing_block.is_none() {
                                                         let latest_info: Option<BlockInfo> = block_info::table
                                                             .order(block_info::id.desc())
                                                             .first(&mut conn)
@@ -287,87 +285,112 @@ async fn fetch_and_store_block_info(
                                                             Ok(_) => println!("Successfully inserted new block info"),
                                                             Err(e) => eprintln!("Error inserting block info: {}", e),
                                                         }
+                                                    }
 
-                                                        // Process and store transactions
-                                                        if let Some(txs) = api_block_info.tx {
-                                                            for tx in txs {
-                                                                let latest_tx: Option<Transaction> = transactions::table
-                                                                    .order(transactions::id.desc())
-                                                                    .first(&mut conn)
-                                                                    .optional()
-                                                                    .expect("Error querying latest transaction");
+                                                    // 请求并处理交易信息
+                                                    let txs_url = format!("https://blockstream.info/api/block/{}/txs", hash_info.id);
+                                                    println!("Fetching transactions for block hash: {}", hash_info.id);
+                                                    match client.get(&txs_url).send().await {
+                                                        Ok(txs_res) if txs_res.status().is_success() => {
+                                                            let txs_text = txs_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
+                                                            println!("Fetched transactions: {}", txs_text);
+                                                            match serde_json::from_str::<Vec<ApiTransaction>>(&txs_text) {
+                                                                Ok(txs) => {
+                                                                    println!("Processing {} transactions", txs.len());
+                                                                    for tx in txs {
+                                                                        println!("Processing transaction: {}", tx.txid);
+                                                                        let latest_tx: Option<Transaction> = transactions::table
+                                                                            .order(transactions::id.desc())
+                                                                            .first(&mut conn)
+                                                                            .optional()
+                                                                            .expect("Error querying latest transaction");
 
-                                                                let new_tx_id = latest_tx.as_ref().map_or(1, |latest| latest.id + 1);
+                                                                        let new_tx_id = latest_tx.as_ref().map_or(1, |latest| latest.id + 1);
 
-                                                                let new_tx = Transaction {
-                                                                    id: new_tx_id,
-                                                                    block_height: api_block_info.height,
-                                                                    hash: tx.txid.clone(),
-                                                                    btc: tx.vout.iter().map(|vout| vout.value).sum(),
-                                                                    fee: tx.fee,
-                                                                    time: api_block_info.timestamp,
-                                                                };
+                                                                        let new_tx = Transaction {
+                                                                            id: new_tx_id,
+                                                                            block_height: api_block_info.height,
+                                                                            hash: tx.txid.clone(),
+                                                                            btc: tx.vout.iter().map(|vout| vout.value).sum(),
+                                                                            fee: tx.fee,
+                                                                            time: api_block_info.timestamp,
+                                                                        };
 
-                                                                match diesel::insert_into(transactions::table)
-                                                                    .values(&new_tx)
-                                                                    .execute(&mut conn)
-                                                                {
-                                                                    Ok(_) => println!("Successfully inserted new transaction"),
-                                                                    Err(e) => eprintln!("Error inserting transaction: {}", e),
-                                                                }
+                                                                        match diesel::insert_into(transactions::table)
+                                                                            .values(&new_tx)
+                                                                            .execute(&mut conn)
+                                                                        {
+                                                                            Ok(_) => println!("Successfully inserted new transaction"),
+                                                                            Err(e) => eprintln!("Error inserting transaction: {}", e),
+                                                                        }
 
-                                                                // Process and store transaction inputs
-                                                                for vin in tx.vin {
-                                                                    let latest_input: Option<TransactionInput> = transaction_inputs::table
-                                                                        .order(transaction_inputs::id.desc())
-                                                                        .first(&mut conn)
-                                                                        .optional()
-                                                                        .expect("Error querying latest transaction input");
+                                                                        // 处理并存储交易输入
+                                                                        for vin in tx.vin {
+                                                                            println!("Processing transaction input: {}", vin.txid);
+                                                                            let latest_input: Option<TransactionInput> = transaction_inputs::table
+                                                                                .order(transaction_inputs::id.desc())
+                                                                                .first(&mut conn)
+                                                                                .optional()
+                                                                                .expect("Error querying latest transaction input");
 
-                                                                    let new_input_id = latest_input.as_ref().map_or(1, |latest| latest.id + 1);
+                                                                            let new_input_id = latest_input.as_ref().map_or(1, |latest| latest.id + 1);
 
-                                                                    let new_input = TransactionInput {
-                                                                        id: new_input_id,
-                                                                        transaction_id: new_tx_id,
-                                                                        previous_output: vin.txid.clone(),
-                                                                        value: 0,  // Placeholder, update as needed
-                                                                    };
+                                                                            let new_input = TransactionInput {
+                                                                                id: new_input_id,
+                                                                                transaction_id: new_tx_id,
+                                                                                previous_output: vin.txid.clone(),
+                                                                                value: 0,  // 根据需要更新
+                                                                            };
 
-                                                                    match diesel::insert_into(transaction_inputs::table)
-                                                                        .values(&new_input)
-                                                                        .execute(&mut conn)
-                                                                    {
-                                                                        Ok(_) => println!("Successfully inserted new transaction input"),
-                                                                        Err(e) => eprintln!("Error inserting transaction input: {}", e),
+                                                                            match diesel::insert_into(transaction_inputs::table)
+                                                                                .values(&new_input)
+                                                                                .execute(&mut conn)
+                                                                            {
+                                                                                Ok(_) => println!("Successfully inserted new transaction input"),
+                                                                                Err(e) => eprintln!("Error inserting transaction input: {}", e),
+                                                                            }
+                                                                        }
+
+                                                                        // 处理并存储交易输出
+                                                                        for vout in tx.vout {
+                                                                            println!("Processing transaction output: {}", vout.script_pub_key.addresses.join(", "));
+                                                                            let latest_output: Option<TransactionOutput> = transaction_outputs::table
+                                                                                .order(transaction_outputs::id.desc())
+                                                                                .first(&mut conn)
+                                                                                .optional()
+                                                                                .expect("Error querying latest transaction output");
+
+                                                                            let new_output_id = latest_output.as_ref().map_or(1, |latest| latest.id + 1);
+
+                                                                            let new_output = TransactionOutput {
+                                                                                id: new_output_id,
+                                                                                transaction_id: new_tx_id,
+                                                                                address: vout.script_pub_key.addresses.join(", "),
+                                                                                value: (vout.value * 100000000.0) as i64,  // Convert to satoshi
+                                                                            };
+
+                                                                            match diesel::insert_into(transaction_outputs::table)
+                                                                                .values(&new_output)
+                                                                                .execute(&mut conn)
+                                                                            {
+                                                                                Ok(_) => println!("Successfully inserted new transaction output"),
+                                                                                Err(e) => eprintln!("Error inserting transaction output: {}", e),
+                                                                            }
+                                                                        }
                                                                     }
                                                                 }
-
-                                                                // Process and store transaction outputs
-                                                                for vout in tx.vout {
-                                                                    let latest_output: Option<TransactionOutput> = transaction_outputs::table
-                                                                        .order(transaction_outputs::id.desc())
-                                                                        .first(&mut conn)
-                                                                        .optional()
-                                                                        .expect("Error querying latest transaction output");
-
-                                                                    let new_output_id = latest_output.as_ref().map_or(1, |latest| latest.id + 1);
-
-                                                                    let new_output = TransactionOutput {
-                                                                        id: new_output_id,
-                                                                        transaction_id: new_tx_id,
-                                                                        address: vout.script_pub_key.addresses.join(", "),
-                                                                        value: (vout.value * 100000000.0) as i64,  // Convert to satoshi
-                                                                    };
-
-                                                                    match diesel::insert_into(transaction_outputs::table)
-                                                                        .values(&new_output)
-                                                                        .execute(&mut conn)
-                                                                    {
-                                                                        Ok(_) => println!("Successfully inserted new transaction output"),
-                                                                        Err(e) => eprintln!("Error inserting transaction output: {}", e),
-                                                                    }
+                                                                Err(e) => {
+                                                                    eprintln!("Error parsing transactions response: {}, response text: {}", e, txs_text);
                                                                 }
                                                             }
+                                                        }
+                                                        Ok(txs_res) => {
+                                                            let status = txs_res.status();
+                                                            let text = txs_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
+                                                            eprintln!("Failed to get transactions. HTTP Status: {}, response text: {}", status, text);
+                                                        }
+                                                        Err(e) => {
+                                                            eprintln!("Failed to get transactions: {}", e);
                                                         }
                                                     }
                                                 }
@@ -375,8 +398,7 @@ async fn fetch_and_store_block_info(
                                                     eprintln!("Error parsing block response: {}, response text: {}", e, block_text);
                                                 }
                                             }
-                                        }
-                                        Ok(block_res) => {
+                                        }                                        Ok(block_res) => {
                                             let status = block_res.status();
                                             let text = block_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
                                             eprintln!("Failed to get block info. HTTP Status: {}, response text: {}", status, text);
@@ -412,6 +434,6 @@ async fn fetch_and_store_block_info(
             }
         }
 
-        *is_fetching_guard = false;  // Release mutex lock
+        *is_fetching_guard = false;
     }
 }
