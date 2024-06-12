@@ -20,7 +20,42 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    transaction_inputs (id) {
+        id -> Int4,
+        transaction_id -> Int4,
+        previous_output -> Varchar,
+        value -> Int8,
+    }
+}
+
+diesel::table! {
+    transaction_outputs (id) {
+        id -> Int4,
+        transaction_id -> Int4,
+        address -> Varchar,
+        value -> Int8,
+    }
+}
+
+diesel::table! {
+    transactions (id) {
+        id -> Int4,
+        block_height -> Int4,
+        hash -> Varchar,
+        btc -> Float8,
+        fee -> Int8,
+        time -> Int8,
+    }
+}
+
+diesel::joinable!(transaction_inputs -> transactions (transaction_id));
+diesel::joinable!(transaction_outputs -> transactions (transaction_id));
+
 diesel::allow_tables_to_appear_in_same_query!(
     block_height,
     block_info,
+    transaction_inputs,
+    transaction_outputs,
+    transactions,
 );

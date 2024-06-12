@@ -1,28 +1,21 @@
-// App.tsx
-import React from 'react';
-import './App.css';
-import BlockHeightComponent from './BlockHeightComponent';
+import React from "react";
+import { Routes, Route } from "react-router-dom";
+import BlockHeightComponent from "./BlockHeightComponent";
+import BlockDetail from "./BlockDetail";
+import TransactionFees from "./TransactionFees";
+import DifficultyAdjustment from "./DifficultyAdjustment";
+import MempoolGoggles from "./MempoolGoggles";
 
 const App: React.FC = () => {
     return (
-        <div className="App">
-            <nav className="navbar navbar-expand-lg navbar-dark bg-dark">
-                <a className="navbar-brand" href="#">
-                    My Block Explorer
-                </a>
-                <div className="collapse navbar-collapse" id="navbarNav">
-                    <ul className="navbar-nav">
-                        <li className="nav-item active">
-                            <a className="nav-link" href="#">Home <span className="sr-only">(current)</span></a>
-                        </li>
-                    </ul>
-                </div>
-            </nav>
-            <div className="container mt-5">
-                <BlockHeightComponent />
-            </div>
-        </div>
+        <Routes>
+            <Route path="/" element={<BlockHeightComponent />} />
+            <Route path="/block/:height" element={<BlockDetail />} />
+            <Route path="/transaction-fees" element={<TransactionFees />} />
+            <Route path="/difficulty-adjustment" element={<DifficultyAdjustment />} />
+            <Route path="/mempool-goggles" element={<MempoolGoggles />} />
+        </Routes>
     );
-}
+};
 
 export default App;

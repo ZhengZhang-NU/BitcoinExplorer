@@ -1,12 +1,11 @@
-DROP TABLE IF EXISTS block_heights;
-
 CREATE TABLE block_info (
-    id SERIAL PRIMARY KEY,
-    height INTEGER NOT NULL,
-    avg_tx_count INTEGER NOT NULL,
-    difficulty DOUBLE PRECISION NOT NULL,
-    block_time INTEGER NOT NULL,
-    timestamp TIMESTAMP NOT NULL,
-    size INTEGER NOT NULL,
-    weight INTEGER NOT NULL
+                            id SERIAL PRIMARY KEY,
+                            height INT NOT NULL,
+                            avg_tx_count INT NOT NULL,
+                            difficulty FLOAT8 NOT NULL,
+                            block_time INT NOT NULL,
+                            timestamp TIMESTAMP NOT NULL,
+                            size INT NOT NULL,
+                            weight INT NOT NULL,
+                            CONSTRAINT unique_height UNIQUE (height)
 );
