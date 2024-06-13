@@ -1,35 +1,48 @@
-.block-height-component {
-    padding: 20px;
-    font-family: Arial, sans-serif;
+/* BlockHeightComponent.css */
+.block-container {
+    margin-left: 20px;
 }
 
-.block-table {
+.title {
+    margin-left: 20px;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+table {
     width: 100%;
     border-collapse: collapse;
-    margin: 20px 0;
-    font-size: 18px;
+    margin-top: 20px;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 8px;
     text-align: left;
 }
 
-.block-table thead tr {
-    background-color: #333;
-    color: #fff;
-    text-align: left;
+th {
+    background-color: #f2f2f2;
+    font-weight: bold;
 }
 
-.block-table th, .block-table td {
-    padding: 12px 15px;
+.pagination {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
 }
 
-.block-table tbody tr {
-    border-bottom: 1px solid #ddd;
-}
-
-.block-table tbody tr:nth-of-type(even) {
-    background-color: #f3f3f3;
-}
-
-.block-table tbody tr:hover {
-    background-color: #f1f1f1;
+.pagination button {
+    margin: 0 5px;
+    padding: 10px 20px;
+    border: none;
+    background-color: #007bff;
+    color: white;
     cursor: pointer;
+    border-radius: 5px;
+}
+
+.pagination button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
 }

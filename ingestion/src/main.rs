@@ -86,7 +86,21 @@ struct ApiTransactionInput {
     txid: String,
     vout: u32,
     sequence: i64,
+    value: Option<i64>,
+    prevout: Option<PrevOut>,
+
 }
+
+
+#[derive(Deserialize)]
+struct PrevOut {
+    scriptpubkey: String,
+    scriptpubkey_asm: String,
+    scriptpubkey_type: String,
+    scriptpubkey_address: String,
+    value: i64,
+}
+
 
 #[derive(Deserialize)]
 struct ApiTransactionOutput {
@@ -205,14 +219,17 @@ async fn handle_get_block_detail(
         Ok(not_found)
     }
 }
+
+
+
 async fn fetch_and_store_block_info(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
     height_url: String,
     is_fetching: Arc<Mutex<bool>>,
 ) {
     let client = reqwest::Client::new();
-
     let mut interval = time::interval(Duration::from_secs(10));
+
     loop {
         interval.tick().await;
 
@@ -222,34 +239,24 @@ async fn fetch_and_store_block_info(
         }
         *is_fetching_guard = true;
 
-        println!("Fetching block height");
         let response = client.get(&height_url).send().await;
-        match response {
-            Ok(res) => {
-                if res.status().is_success() {
-                    let height_text = res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
-                    println!("Fetched block height: {}", height_text);
-                    match height_text.trim().parse::<i32>() {
-                        Ok(height) => {
-                            let hash_url = format!("https://blockstream.info/api/block-height/{}", height);
-                            println!("Fetching block hash for height: {}", height);
-                            match client.get(&hash_url).send().await {
-                                Ok(hash_res) if hash_res.status().is_success() => {
-                                    let hash_text = hash_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
+        if let Ok(res) = response {
+            if res.status().is_success() {
+                if let Ok(height_text) = res.text().await {
+                    if let Ok(height) = height_text.trim().parse::<i32>() {
+                        let hash_url = format!("https://blockstream.info/api/block-height/{}", height);
+                        if let Ok(hash_res) = client.get(&hash_url).send().await {
+                            if hash_res.status().is_success() {
+                                if let Ok(hash_text) = hash_res.text().await {
                                     let hash_info = BlockHashResponse { id: hash_text.trim().to_string() };
-                                    println!("Fetched block hash: {}", hash_info.id);
 
                                     let block_url = format!("https://blockstream.info/api/block/{}", hash_info.id);
-                                    println!("Fetching block info for hash: {}", hash_info.id);
-                                    match client.get(&block_url).send().await {
-                                        Ok(block_res) if block_res.status().is_success() => {
-                                            let block_text = block_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
-                                            println!("Fetched block info: {}", block_text);
-                                            match serde_json::from_str::<ApiBlockInfo>(&block_text) {
-                                                Ok(api_block_info) => {
+                                    if let Ok(block_res) = client.get(&block_url).send().await {
+                                        if block_res.status().is_success() {
+                                            if let Ok(block_text) = block_res.text().await {
+                                                if let Ok(api_block_info) = serde_json::from_str::<ApiBlockInfo>(&block_text) {
                                                     let mut conn = pool.get().expect("Failed to get connection from pool");
 
-                                                    // 检查区块高度是否已经存在
                                                     let existing_block: Option<BlockInfo> = block_info::table
                                                         .filter(block_info::height.eq(api_block_info.height))
                                                         .first(&mut conn)
@@ -278,25 +285,17 @@ async fn fetch_and_store_block_info(
                                                             weight: api_block_info.weight,
                                                         };
 
-                                                        match diesel::insert_into(block_info::table)
+                                                        diesel::insert_into(block_info::table)
                                                             .values(&new_info)
                                                             .execute(&mut conn)
-                                                        {
-                                                            Ok(_) => println!("Successfully inserted new block info"),
-                                                            Err(e) => eprintln!("Error inserting block info: {}", e),
-                                                        }
+                                                            .expect("Error inserting block info");
                                                     }
 
-                                                    // 请求并处理交易信息
                                                     let txs_url = format!("https://blockstream.info/api/block/{}/txs", hash_info.id);
-                                                    println!("Fetching transactions for block hash: {}", hash_info.id);
-                                                    match client.get(&txs_url).send().await {
-                                                        Ok(txs_res) if txs_res.status().is_success() => {
-                                                            let txs_text = txs_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
-                                                            println!("Fetched transactions for block hash: {}", hash_info.id);
-                                                            match serde_json::from_str::<Vec<ApiTransaction>>(&txs_text) {
-                                                                Ok(txs) => {
-                                                                    println!("Processing transactions");
+                                                    if let Ok(txs_res) = client.get(&txs_url).send().await {
+                                                        if txs_res.status().is_success() {
+                                                            if let Ok(txs_text) = txs_res.text().await {
+                                                                if let Ok(txs) = serde_json::from_str::<Vec<ApiTransaction>>(&txs_text) {
                                                                     for tx in txs {
                                                                         let latest_tx: Option<Transaction> = transactions::table
                                                                             .order(transactions::id.desc())
@@ -315,15 +314,12 @@ async fn fetch_and_store_block_info(
                                                                             time: api_block_info.timestamp,
                                                                         };
 
-                                                                        match diesel::insert_into(transactions::table)
+                                                                        diesel::insert_into(transactions::table)
                                                                             .values(&new_tx)
                                                                             .execute(&mut conn)
-                                                                        {
-                                                                            Ok(_) => println!("Successfully inserted new transaction"),
-                                                                            Err(e) => eprintln!("Error inserting transaction: {}", e),
-                                                                        }
+                                                                            .expect("Error inserting transaction");
 
-                                                                        // 处理并存储交易输入
+
                                                                         for vin in tx.vin {
                                                                             let latest_input: Option<TransactionInput> = transaction_inputs::table
                                                                                 .order(transaction_inputs::id.desc())
@@ -333,11 +329,16 @@ async fn fetch_and_store_block_info(
 
                                                                             let new_input_id = latest_input.as_ref().map_or(1, |latest| latest.id + 1);
 
+                                                                            // 从 `vin` 中获取 `prevout` 的 `value` 属性
+                                                                            let value = vin.prevout.as_ref().map_or(0, |prevout| prevout.value);
+
+                                                                            println!("Inserting input with value: {}", value);  // 打印插入的值
+
                                                                             let new_input = TransactionInput {
                                                                                 id: new_input_id,
                                                                                 transaction_id: new_tx_id,
                                                                                 previous_output: vin.txid.clone(),
-                                                                                value: 0,  // 根据需要更新
+                                                                                value,
                                                                             };
 
                                                                             match diesel::insert_into(transaction_inputs::table)
@@ -349,7 +350,8 @@ async fn fetch_and_store_block_info(
                                                                             }
                                                                         }
 
-                                                                        // 处理并存储交易输出
+
+
                                                                         for vout in tx.vout {
                                                                             let latest_output: Option<TransactionOutput> = transaction_outputs::table
                                                                                 .order(transaction_outputs::id.desc())
@@ -368,7 +370,7 @@ async fn fetch_and_store_block_info(
                                                                                 id: new_output_id,
                                                                                 transaction_id: new_tx_id,
                                                                                 address,
-                                                                                value: (vout.value * 100000000.0) as i64,  // Convert to satoshi
+                                                                                value: vout.value as i64,
                                                                             };
 
                                                                             match diesel::insert_into(transaction_outputs::table)
@@ -380,61 +382,20 @@ async fn fetch_and_store_block_info(
                                                                             }
                                                                         }
 
-
                                                                     }
-                                                                }
-                                                                Err(e) => {
-                                                                    eprintln!("Error parsing transactions response: {}, response text: {}", e, txs_text);
                                                                 }
                                                             }
                                                         }
-                                                        Ok(txs_res) => {
-                                                            let status = txs_res.status();
-                                                            let text = txs_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
-                                                            eprintln!("Failed to get transactions. HTTP Status: {}, response text: {}", status, text);
-                                                        }
-                                                        Err(e) => {
-                                                            eprintln!("Failed to get transactions: {}", e);
-                                                        }
                                                     }
-                                                }
-                                                Err(e) => {
-                                                    eprintln!("Error parsing block response: {}, response text: {}", e, block_text);
                                                 }
                                             }
                                         }
-                                        Ok(block_res) => {
-                                            let status = block_res.status();
-                                            let text = block_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
-                                            eprintln!("Failed to get block info. HTTP Status: {}, response text: {}", status, text);
-                                        }
-                                        Err(e) => {
-                                            eprintln!("Failed to get block info: {}", e);
-                                        }
                                     }
-                                }
-                                Ok(hash_res) => {
-                                    let status = hash_res.status();
-                                    let text = hash_res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
-                                    eprintln!("Failed to get block hash. HTTP Status: {}, response text: {}", status, text);
-                                }
-                                Err(e) => {
-                                    eprintln!("Failed to get block hash: {}", e);
                                 }
                             }
                         }
-                        Err(e) => {
-                            eprintln!("Error parsing response: {}, response text: {}", e, height_text);
-                        }
                     }
-                } else {
-                    let status = res.status();
-                    let text = res.text().await.unwrap_or_else(|_| "Unable to read response text".to_string());
-                    eprintln!("Failed to get block height. HTTP Status: {}, response text: {}", status, text);
                 }
-            }
-            Err(e) => {
-                eprintln!("Failed to get block height: {}", e);
             }
         }
 

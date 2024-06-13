@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import "./BlockHeightComponent.css";
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Container, Table, Pagination } from 'react-bootstrap';
 
 interface BlockInfo {
     height: number;
@@ -13,34 +13,26 @@ interface BlockInfo {
 }
 
 const BlockHeightComponent: React.FC = () => {
-    const [blockInfo, setBlockInfo] = useState<BlockInfo[]>([]);
-    const navigate = useNavigate();
+    const [blockData, setBlockData] = useState<BlockInfo[]>([]);
+    const [currentPage, setCurrentPage] = useState(1);
+    const blocksPerPage = 10;
 
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const response = await fetch("http://localhost:8000/block-info");
-                const data = await response.json();
-                // Filter unique blocks based on height
-                const uniqueData = data.filter((item: BlockInfo, index: number, self: BlockInfo[]) =>
-                    index === self.findIndex((t) => t.height === item.height)
-                );
-                setBlockInfo(uniqueData);
-            } catch (error) {
-                console.error("Failed to fetch block info:", error);
-            }
-        };
-        fetchData();
+        fetch('http://localhost:8000/block-info')
+            .then(response => response.json())
+            .then(data => setBlockData(data));
     }, []);
 
-    const handleRowClick = (height: number) => {
-        navigate(`/block/${height}`);
-    };
+    const indexOfLastBlock = currentPage * blocksPerPage;
+    const indexOfFirstBlock = indexOfLastBlock - blocksPerPage;
+    const currentBlocks = blockData.slice(indexOfFirstBlock, indexOfLastBlock);
+
+    const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
     return (
-        <div className="block-height-component">
-            <h2>Latest Blocks</h2>
-            <table className="block-table">
+        <Container>
+            <h2 className="my-4">Latest Blocks</h2>
+            <Table striped bordered hover>
                 <thead>
                 <tr>
                     <th>Height</th>
@@ -53,20 +45,27 @@ const BlockHeightComponent: React.FC = () => {
                 </tr>
                 </thead>
                 <tbody>
-                {blockInfo.map((block) => (
-                    <tr key={block.height} onClick={() => handleRowClick(block.height)}>
-                        <td>{block.height}</td>
+                {currentBlocks.map(block => (
+                    <tr key={block.height}>
+                        <td>
+                            <Link to={`/block/${block.height}`}>{block.height}</Link>
+                        </td>
                         <td>{block.avg_tx_count}</td>
                         <td>{block.difficulty}</td>
                         <td>{block.block_time}</td>
-                        <td>{block.timestamp}</td>
+                        <td>{new Date(block.timestamp).toLocaleString()}</td>
                         <td>{block.size}</td>
                         <td>{block.weight}</td>
                     </tr>
                 ))}
                 </tbody>
-            </table>
-        </div>
+            </Table>
+            <Pagination>
+                <Pagination.Prev onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} />
+                <Pagination.Item>{currentPage}</Pagination.Item>
+                <Pagination.Next onClick={() => paginate(currentPage + 1)} disabled={indexOfLastBlock >= blockData.length} />
+            </Pagination>
+        </Container>
     );
 };
 

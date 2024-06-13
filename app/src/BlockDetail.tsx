@@ -95,8 +95,8 @@ const BlockDetail: React.FC = () => {
                     currentTransactions.map((tx) => (
                         <div key={tx.id} className="transaction-card">
                             <h4>Transaction {tx.hash}</h4>
-                            <p>BTC: {tx.btc}</p>
-                            <p>Fee: {tx.fee}</p>
+                            <p>BTC: {(tx.btc / 100000000).toFixed(8)} BTC</p>
+                            <p>Fee: {(tx.fee / 100000000).toFixed(8)} BTC</p>
                             <p>Time: {new Date(tx.time * 1000).toLocaleString()}</p>
                             <div className="transaction-io">
                                 <div className="inputs">
@@ -105,7 +105,7 @@ const BlockDetail: React.FC = () => {
                                         .filter((input) => input.transaction_id === tx.id)
                                         .map((input) => (
                                             <p key={input.id} className="input-output">
-                                                {input.previous_output} - {input.value} BTC
+                                                {input.previous_output} - {(input.value / 100000000).toFixed(8)} BTC
                                             </p>
                                         ))}
                                 </div>
@@ -115,7 +115,7 @@ const BlockDetail: React.FC = () => {
                                         .filter((output) => output.transaction_id === tx.id)
                                         .map((output) => (
                                             <p key={output.id} className="input-output">
-                                                {output.address} - {output.value} BTC
+                                                {output.address || "Unknown Address"} - {(output.value / 100000000).toFixed(8)} BTC
                                             </p>
                                         ))}
                                 </div>
