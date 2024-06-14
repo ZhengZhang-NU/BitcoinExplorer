@@ -8,24 +8,52 @@ use tokio::time::{self, Duration};
 use tokio::sync::Mutex;
 use warp::Filter;
 use chrono::{NaiveDateTime, TimeZone, Utc};
+use diesel::pg::Pg;
+
 
 mod schema;
 use schema::{offchain_data, block_info, transactions, transaction_inputs, transaction_outputs};
 
 
-// off-chain
-#[derive(Queryable, Identifiable, Insertable, Debug, AsChangeset, Serialize)]
+
+#[derive(Queryable, Identifiable, Insertable, Debug, AsChangeset, Serialize, Selectable)]
 #[diesel(table_name = offchain_data)]
+#[diesel(primary_key(id))]
+#[diesel(check_for_backend(Pg))]
 pub struct OffchainData {
     pub id: i32,
     pub block_height: i32,
     pub btc_price: f64,
-    pub market_sentiment: f64,
-    pub volume: f64,
-    pub high: f64,
-    pub low: f64,
+    pub market_sentiment: Option<f64>,
+    pub volume: Option<f64>,
+    pub high: Option<f64>,
+    pub low: Option<f64>,
     pub timestamp: NaiveDateTime,
 }
+
+
+async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, data: OffchainData) -> Result<(), diesel::result::Error> {
+    let mut conn = pool.get().expect("Failed to get connection from pool");
+
+    diesel::insert_into(offchain_data::table)
+        .values(&data)
+        .on_conflict(offchain_data::block_height)
+        .do_update()
+        .set((
+            offchain_data::btc_price.eq(data.btc_price),
+            offchain_data::market_sentiment.eq(data.market_sentiment),
+            offchain_data::volume.eq(data.volume),
+            offchain_data::high.eq(data.high),
+            offchain_data::low.eq(data.low),
+            offchain_data::timestamp.eq(data.timestamp),
+        ))
+        .execute(&mut conn)?;
+
+    println!("Data inserted or updated successfully");
+
+    Ok(())
+}
+
 async fn fetch_and_store_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, block_height: i32) {
     let client = reqwest::Client::new();
     println!("Fetching offchain data for block height: {}", block_height);
@@ -34,32 +62,22 @@ async fn fetch_and_store_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<Pg
         .send().await;
 
     if let Ok(res) = response {
-        println!("Response status: {}", res.status());
         if res.status().is_success() {
             if let Ok(offchain_data) = res.json::<serde_json::Value>().await {
-                println!("Offchain data received: {:?}", offchain_data);
                 if let Some(prices) = offchain_data["prices"].as_array() {
                     if let Some(price) = prices.first() {
                         let btc_price = price[1].as_f64().unwrap_or(0.0);
                         let market_sentiment = offchain_data["market_caps"].as_array()
                             .and_then(|caps| caps.first())
-                            .map_or(0.0, |cap| {
-                                let value = cap[1].as_f64().unwrap_or(0.0);
-                                println!("Market Sentiment: {:.2} (Calculated based on market capitalization and trading volume)", value);
-                                value
-                            });
+                            .and_then(|cap| cap[1].as_f64());
                         let volume = offchain_data["total_volumes"].as_array()
                             .and_then(|volumes| volumes.first())
-                            .map_or(0.0, |volume| volume[1].as_f64().unwrap_or(0.0));
+                            .and_then(|volume| volume[1].as_f64());
                         let high = offchain_data["prices"].as_array()
-                            .and_then(|prices| prices.iter().map(|price| price[1].as_f64().unwrap_or(0.0)).max_by(|a, b| a.partial_cmp(b).unwrap()))
-                            .unwrap_or(0.0);
+                            .and_then(|prices| prices.iter().map(|price| price[1].as_f64().unwrap_or(0.0)).max_by(|a, b| a.partial_cmp(b).unwrap()));
                         let low = offchain_data["prices"].as_array()
-                            .and_then(|prices| prices.iter().map(|price| price[1].as_f64().unwrap_or(0.0)).min_by(|a, b| a.partial_cmp(b).unwrap()))
-                            .unwrap_or(0.0);
+                            .and_then(|prices| prices.iter().map(|price| price[1].as_f64().unwrap_or(0.0)).min_by(|a, b| a.partial_cmp(b).unwrap()));
                         let timestamp = Utc::now().naive_utc();
-
-                        println!("Parsed offchain data - btc_price: {}, market_sentiment: {}, volume: {}, high: {}, low: {}", btc_price, market_sentiment, volume, high, low);
 
                         let new_data = OffchainData {
                             id: 0,
@@ -72,38 +90,14 @@ async fn fetch_and_store_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<Pg
                             timestamp,
                         };
 
-                        println!("Inserting new offchain data for block height: {}", block_height);
-                        if let Err(e) = insert_offchain_data(pool.clone(), new_data).await {
-                            eprintln!("Error inserting offchain data: {:?}", e);
-                        } else {
-                            println!("Successfully inserted offchain data for block height: {}", block_height);
-                        }
-                    } else {
-                        println!("No price data found in offchain data");
+                        insert_or_update_offchain_data(pool.clone(), new_data).await.unwrap();
                     }
-                } else {
-                    println!("Failed to parse prices from offchain data");
                 }
-            } else {
-                println!("Failed to parse offchain data");
             }
-        } else {
-            println!("Failed to fetch offchain data: {}", res.status());
         }
-    } else {
-        println!("Error sending request to fetch offchain data: {:?}", response.err());
     }
 }
-async fn insert_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, data: OffchainData) -> Result<(), diesel::result::Error> {
-    println!("Attempting to insert data: {:?}", data);
-    let mut conn = pool.get().expect("Failed to get connection from pool");
-    diesel::insert_into(offchain_data::table)
-        .values(&data)
-        .on_conflict_do_nothing()
-        .execute(&mut conn)?;
-    println!("Data inserted successfully");
-    Ok(())
-}
+
 
 async fn handle_get_offchain_data(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
@@ -116,7 +110,6 @@ async fn handle_get_offchain_data(
 
     Ok(warp::reply::json(&results))
 }
-
 
 
 //==============================
@@ -240,6 +233,7 @@ struct BlockDetailData {
     outputs: Vec<TransactionOutput>,
 }
 
+
 #[tokio::main]
 async fn main() {
     dotenv().ok();
@@ -247,43 +241,33 @@ async fn main() {
     let manager = ConnectionManager::<PgConnection>::new(&database_url);
     let pool = Arc::new(r2d2::Pool::builder().build(manager).expect("Failed to create pool"));
 
-    let height_url = "https://blockstream.info/api/blocks/tip/height";
+    // 创建一个用于同步的Arc<Mutex<bool>>，以确保fetch_and_store_block_info不会被并发执行
     let is_fetching = Arc::new(Mutex::new(false));
 
-    let pool_clone1 = Arc::clone(&pool);
-    tokio::spawn(fetch_and_store_block_info(pool_clone1, height_url.to_string(), Arc::clone(&is_fetching)));
+    let pool_clone_for_block_info = Arc::clone(&pool);
+    let is_fetching_clone = Arc::clone(&is_fetching);
+    tokio::spawn(async move {
+        fetch_and_store_block_info(pool_clone_for_block_info, "https://blockstream.info/api/blocks/tip/height".to_string(), is_fetching_clone).await;
+    });
 
-
-    // off-chain
-    let pool_clone2 = Arc::clone(&pool);
+    let pool_clone_for_offchain = Arc::clone(&pool);
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(10)); // 每10秒执行一次
         loop {
             interval.tick().await;
 
-            println!("Fetching block height from API");
-
+            // 获取真实的区块高度
+            let height_url = "https://blockstream.info/api/blocks/tip/height";
             let client = reqwest::Client::new();
             if let Ok(response) = client.get(height_url).send().await {
                 if let Ok(height_text) = response.text().await {
                     if let Ok(block_height) = height_text.trim().parse::<i32>() {
-                        println!("Fetched block height: {}", block_height);
-                        fetch_and_store_offchain_data(pool_clone2.clone(), block_height).await;
-                    } else {
-                        println!("Failed to parse block height: {}", height_text);
+                        fetch_and_store_offchain_data(pool_clone_for_offchain.clone(), block_height).await;
                     }
-                } else {
-                    println!("Failed to get response text for block height");
                 }
-            } else {
-
             }
         }
     });
-    //=======================
-
-
-
 
     let block_info_route = warp::path("block-info")
         .and(warp::get())
@@ -297,7 +281,6 @@ async fn main() {
         .and_then(|height, pool| handle_get_block_detail(pool, height))
         .with(warp::cors().allow_any_origin());
 
-    // Add offchain data route
     let offchain_data_route = warp::path("offchain-data")
         .and(warp::get())
         .and(with_db(pool.clone()))
@@ -310,11 +293,14 @@ async fn main() {
 }
 
 
+
 fn with_db(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
 ) -> impl Filter<Extract = (Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || pool.clone())
 }
+
+
 
 async fn handle_get_block_info(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
@@ -491,9 +477,9 @@ async fn fetch_and_store_block_info(
                                                                                 value,
                                                                             };
 
-                                                                             diesel::insert_into(transaction_inputs::table)
-                                                                                 .values(&new_input)
-                                                                                 .execute(&mut conn).expect("TODO: panic message");
+                                                                            diesel::insert_into(transaction_inputs::table)
+                                                                                .values(&new_input)
+                                                                                .execute(&mut conn).expect("TODO: panic message");
 
                                                                         }
 
@@ -520,9 +506,9 @@ async fn fetch_and_store_block_info(
                                                                                 value: vout.value as i64,
                                                                             };
 
-                                                                             diesel::insert_into(transaction_outputs::table)
-                                                                                 .values(&new_output)
-                                                                                 .execute(&mut conn);
+                                                                            diesel::insert_into(transaction_outputs::table)
+                                                                                .values(&new_output)
+                                                                                .execute(&mut conn);
 
                                                                         }
 

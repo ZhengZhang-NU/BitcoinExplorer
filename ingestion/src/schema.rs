@@ -32,14 +32,13 @@ diesel::table! {
         id -> Int4,
         block_height -> Int4,
         btc_price -> Float8,
-        market_sentiment -> Float8,
-        volume -> Float8,
-        high -> Float8,
-        low -> Float8,
+        market_sentiment -> Nullable<Float8>,
+        volume -> Nullable<Float8>,
+        high -> Nullable<Float8>,
+        low -> Nullable<Float8>,
         timestamp -> Timestamp,
     }
 }
-
 
 diesel::table! {
     transaction_inputs (id) {

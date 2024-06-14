@@ -750,6 +750,7 @@ dependencies = [
  "dotenv",
  "postgres",
  "r2d2",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",
