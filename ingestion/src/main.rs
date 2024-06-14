@@ -205,7 +205,7 @@ struct PrevOut {
 }
 
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct ApiTransactionOutput {
     value: f64,
     n: Option<u32>,
@@ -213,12 +213,14 @@ struct ApiTransactionOutput {
 }
 
 
-#[derive(Deserialize)]
+
+#[derive(Deserialize, Debug)]
 struct ApiScriptPubKey {
     hex: String,
     asm: String,
     addresses: Vec<String>,
 }
+
 
 #[derive(Deserialize)]
 struct BlockHashResponse {
@@ -233,17 +235,21 @@ struct BlockDetailData {
     outputs: Vec<TransactionOutput>,
 }
 
-
 #[tokio::main]
 async fn main() {
+    println!("Starting the application...");
+
     dotenv().ok();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<PgConnection>::new(&database_url);
+
+    println!("Creating connection pool...");
     let pool = Arc::new(r2d2::Pool::builder().build(manager).expect("Failed to create pool"));
 
-    // 创建一个用于同步的Arc<Mutex<bool>>，以确保fetch_and_store_block_info不会被并发执行
+    println!("Creating synchronization mechanism...");
     let is_fetching = Arc::new(Mutex::new(false));
 
+    println!("Spawning tasks...");
     let pool_clone_for_block_info = Arc::clone(&pool);
     let is_fetching_clone = Arc::clone(&is_fetching);
     tokio::spawn(async move {
@@ -256,12 +262,14 @@ async fn main() {
         loop {
             interval.tick().await;
 
+            println!("Fetching offchain data...");
             // 获取真实的区块高度
             let height_url = "https://blockstream.info/api/blocks/tip/height";
             let client = reqwest::Client::new();
             if let Ok(response) = client.get(height_url).send().await {
                 if let Ok(height_text) = response.text().await {
                     if let Ok(block_height) = height_text.trim().parse::<i32>() {
+                        println!("Fetched block height: {}", block_height);
                         fetch_and_store_offchain_data(pool_clone_for_offchain.clone(), block_height).await;
                     }
                 }
@@ -269,6 +277,7 @@ async fn main() {
         }
     });
 
+    println!("Setting up routes...");
     let block_info_route = warp::path("block-info")
         .and(warp::get())
         .and(with_db(Arc::clone(&pool)))
@@ -287,12 +296,11 @@ async fn main() {
         .and_then(handle_get_offchain_data)
         .with(warp::cors().allow_any_origin());
 
+    println!("Starting server...");
     warp::serve(block_info_route.or(block_detail_route).or(offchain_data_route))
         .run(([127, 0, 0, 1], 8000))
         .await;
 }
-
-
 
 fn with_db(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
@@ -300,17 +308,17 @@ fn with_db(
     warp::any().map(move || pool.clone())
 }
 
-
-
 async fn handle_get_block_info(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
+    println!("Handling get block info...");
     let mut conn = pool.get().expect("Failed to get connection from pool");
     let results: Vec<BlockInfo> = block_info::table
         .order(block_info::id.desc())
         .load::<BlockInfo>(&mut conn)
         .expect("Error loading block info");
 
+    println!("Returning block info...");
     Ok(warp::reply::json(&results))
 }
 
@@ -318,6 +326,7 @@ async fn handle_get_block_detail(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
     height: i32,
 ) -> Result<impl warp::Reply, warp::Rejection> {
+    println!("Handling get block detail for height: {}", height);
     let mut conn = pool.get().expect("Failed to get connection from pool");
 
     let block_info_result: Option<BlockInfo> = block_info::table
@@ -327,6 +336,7 @@ async fn handle_get_block_detail(
         .expect("Error loading block info");
 
     if let Some(block_info) = block_info_result {
+        println!("Block info found for height: {}", height);
         let transactions_result: Vec<Transaction> = transactions::table
             .filter(transactions::block_height.eq(height))
             .load::<Transaction>(&mut conn)
@@ -349,15 +359,14 @@ async fn handle_get_block_detail(
             outputs: outputs_result,
         };
 
+        println!("Returning block detail for height: {}", height);
         Ok(warp::reply::json(&block_detail))
     } else {
+        println!("Block not found for height: {}", height);
         let not_found = warp::reply::json(&"Block not found");
         Ok(not_found)
     }
 }
-
-
-
 async fn fetch_and_store_block_info(
     pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>,
     height_url: String,
@@ -465,10 +474,9 @@ async fn fetch_and_store_block_info(
 
                                                                             let new_input_id = latest_input.as_ref().map_or(1, |latest| latest.id + 1);
 
-                                                                            // 从 `vin` 中获取 `prevout` 的 `value` 属性
                                                                             let value = vin.prevout.as_ref().map_or(0, |prevout| prevout.value);
 
-
+                                                                            println!("Inserting input with value: {}", value);  // 打印插入的值
 
                                                                             let new_input = TransactionInput {
                                                                                 id: new_input_id,
@@ -477,40 +485,54 @@ async fn fetch_and_store_block_info(
                                                                                 value,
                                                                             };
 
-                                                                            diesel::insert_into(transaction_inputs::table)
+                                                                            match diesel::insert_into(transaction_inputs::table)
                                                                                 .values(&new_input)
-                                                                                .execute(&mut conn).expect("TODO: panic message");
-
+                                                                                .execute(&mut conn)
+                                                                            {
+                                                                                Ok(_) => println!("Successfully inserted new transaction input"),
+                                                                                Err(e) => eprintln!("Error inserting transaction input: {}", e),
+                                                                            }
                                                                         }
-
-
 
                                                                         for vout in tx.vout {
-                                                                            let latest_output: Option<TransactionOutput> = transaction_outputs::table
-                                                                                .order(transaction_outputs::id.desc())
-                                                                                .first(&mut conn)
-                                                                                .optional()
-                                                                                .expect("Error querying latest transaction output");
+                                                                            println!("Processing vout: {:?}", vout);
+                                                                            if let Some(script) = &vout.script_pub_key {
+                                                                                println!("ScriptPubKey found: {:?}", script);
 
-                                                                            let new_output_id = latest_output.as_ref().map_or(1, |latest| latest.id + 1);
+                                                                                let latest_output: Option<TransactionOutput> = transaction_outputs::table
+                                                                                    .order(transaction_outputs::id.desc())
+                                                                                    .first(&mut conn)
+                                                                                    .optional()
+                                                                                    .expect("Error querying latest transaction output");
 
-                                                                            let address = vout.script_pub_key
-                                                                                .as_ref()
-                                                                                .map(|script| script.addresses.join(", "))
-                                                                                .unwrap_or_default();
+                                                                                let new_output_id = latest_output.as_ref().map_or(1, |latest| latest.id + 1);
 
-                                                                            let new_output = TransactionOutput {
-                                                                                id: new_output_id,
-                                                                                transaction_id: new_tx_id,
-                                                                                address,
-                                                                                value: vout.value as i64,
-                                                                            };
+                                                                                // 这里进行克隆
+                                                                                let address = vout.script_pub_key
+                                                                                    .as_ref()
+                                                                                    .map(|script| script.addresses.join(", "))
+                                                                                    .unwrap_or_default()
+                                                                                    .clone();
 
-                                                                            diesel::insert_into(transaction_outputs::table)
-                                                                                .values(&new_output)
-                                                                                .execute(&mut conn);
+                                                                                let new_output = TransactionOutput {
+                                                                                    id: new_output_id,
+                                                                                    transaction_id: new_tx_id,
+                                                                                    address: address.clone(), // 克隆后的值
+                                                                                    value: vout.value as i64,
+                                                                                };
 
+                                                                                match diesel::insert_into(transaction_outputs::table)
+                                                                                    .values(&new_output)
+                                                                                    .execute(&mut conn)
+                                                                                {
+                                                                                    Ok(_) => println!("Successfully inserted new transaction output with address: {}", address),
+                                                                                    Err(e) => eprintln!("Error inserting transaction output: {}", e),
+                                                                                }
+                                                                            } else {
+                                                                                println!("No script_pub_key found for vout. Here is the full vout: {:?}", vout);
+                                                                            }
                                                                         }
+
 
                                                                     }
                                                                 }
