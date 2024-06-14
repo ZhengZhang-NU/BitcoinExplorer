@@ -1,12 +1,12 @@
 use diesel::prelude::*;
-use diesel::r2d2::{self, ConnectionManager};
-use dotenv::dotenv;
+use diesel::r2d2::{self, ConnectionManager};// connection pool
+use dotenv::dotenv;//.env
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
 use tokio::time::{self, Duration};
-use tokio::sync::Mutex;
-use warp::Filter;
+use tokio::sync::Mutex;//async lock
+use warp::Filter;// http route
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use diesel::pg::Pg;
 
@@ -38,7 +38,7 @@ pub struct OffchainData {
 async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, data: OffchainData) -> Result<(), diesel::result::Error> {
     let mut conn = pool.get().expect("Failed to get connection from pool");
 
-    // 检查是否存在相同区块高度和时间戳的记录
+    // check the same height
     let existing_data = offchain_data::table
         .filter(offchain_data::block_height.eq(data.block_height))
         .filter(offchain_data::timestamp.eq(data.timestamp))
@@ -46,7 +46,7 @@ async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<P
         .optional()?;
 
     if existing_data.is_none() {
-        // 插入新记录
+        // insert new record
         match diesel::insert_into(offchain_data::table)
             .values(&data)
             .execute(&mut conn) {
@@ -60,7 +60,6 @@ async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<P
             }
         }
     } else {
-        // 更新现有记录
         println!("Record with same block height and timestamp exists. Skipping insert.");
         Ok(())
     }
@@ -274,12 +273,12 @@ async fn main() {
 
     let pool_clone_for_offchain = Arc::clone(&pool);
     tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(10)); // 每10秒执行一次
+        let mut interval = time::interval(Duration::from_secs(10)); // every 10s run
         loop {
             interval.tick().await;
 
             println!("Fetching offchain data...");
-            // 获取真实的区块高度
+            // get the real height
             let height_url = "https://blockstream.info/api/blocks/tip/height";
             let client = reqwest::Client::new();
             if let Ok(response) = client.get(height_url).send().await {
@@ -540,7 +539,7 @@ async fn fetch_and_store_block_info(
                                                                                     Err(e) => eprintln!("Error inserting transaction output: {}", e),
                                                                                 }
                                                                             } else {
-                                                                                // 即使没有 script_pub_key 也存储其他信息
+
                                                                                 let latest_output: Option<TransactionOutput> = transaction_outputs::table
                                                                                     .order(transaction_outputs::id.desc())
                                                                                     .first(&mut conn)
@@ -552,7 +551,7 @@ async fn fetch_and_store_block_info(
                                                                                 let new_output = TransactionOutput {
                                                                                     id: new_output_id,
                                                                                     transaction_id: new_tx_id,
-                                                                                    address: "".to_string(), // 空地址
+                                                                                    address: "".to_string(),
                                                                                     value: vout.value as i64,
                                                                                 };
 
