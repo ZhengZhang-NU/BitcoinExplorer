@@ -27,7 +27,6 @@ const OffchainComponent: React.FC = () => {
             <Table striped bordered hover>
                 <thead>
                 <tr>
-                    <th>ID</th>
                     <th>Block Height</th>
                     <th>BTC Price</th>
                     <th>Market Sentiment</th>
@@ -40,7 +39,6 @@ const OffchainComponent: React.FC = () => {
                 <tbody>
                 {offchainData.map(data => (
                     <tr key={data.id}>
-                        <td>{data.id}</td>
                         <td>{data.block_height}</td>
                         <td>{data.btc_price}</td>
                         <td>{data.market_sentiment}</td>

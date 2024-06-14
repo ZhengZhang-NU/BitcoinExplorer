@@ -32,26 +32,38 @@ pub struct OffchainData {
 }
 
 
+
+
+
 async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, data: OffchainData) -> Result<(), diesel::result::Error> {
     let mut conn = pool.get().expect("Failed to get connection from pool");
 
-    diesel::insert_into(offchain_data::table)
-        .values(&data)
-        .on_conflict(offchain_data::block_height)
-        .do_update()
-        .set((
-            offchain_data::btc_price.eq(data.btc_price),
-            offchain_data::market_sentiment.eq(data.market_sentiment),
-            offchain_data::volume.eq(data.volume),
-            offchain_data::high.eq(data.high),
-            offchain_data::low.eq(data.low),
-            offchain_data::timestamp.eq(data.timestamp),
-        ))
-        .execute(&mut conn)?;
+    // 检查是否存在相同区块高度和时间戳的记录
+    let existing_data = offchain_data::table
+        .filter(offchain_data::block_height.eq(data.block_height))
+        .filter(offchain_data::timestamp.eq(data.timestamp))
+        .first::<OffchainData>(&mut conn)
+        .optional()?;
 
-    println!("Data inserted or updated successfully");
-
-    Ok(())
+    if existing_data.is_none() {
+        // 插入新记录
+        match diesel::insert_into(offchain_data::table)
+            .values(&data)
+            .execute(&mut conn) {
+            Ok(_) => {
+                println!("Data inserted successfully");
+                Ok(())
+            },
+            Err(e) => {
+                eprintln!("Error inserting data: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        // 更新现有记录
+        println!("Record with same block height and timestamp exists. Skipping insert.");
+        Ok(())
+    }
 }
 
 async fn fetch_and_store_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, block_height: i32) {
@@ -90,13 +102,17 @@ async fn fetch_and_store_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<Pg
                             timestamp,
                         };
 
-                        insert_or_update_offchain_data(pool.clone(), new_data).await.unwrap();
+                        match insert_or_update_offchain_data(pool.clone(), new_data).await {
+                            Ok(_) => println!("Offchain data processed successfully."),
+                            Err(e) => eprintln!("Error processing offchain data: {}", e),
+                        }
                     }
                 }
             }
         }
     }
 }
+
 
 
 async fn handle_get_offchain_data(
@@ -476,7 +492,7 @@ async fn fetch_and_store_block_info(
 
                                                                             let value = vin.prevout.as_ref().map_or(0, |prevout| prevout.value);
 
-                                                                            println!("Inserting input with value: {}", value);  // 打印插入的值
+                                                                            // println!("Inserting input with value: {}", value);  // 打印插入的值
 
                                                                             let new_input = TransactionInput {
                                                                                 id: new_input_id,
@@ -497,7 +513,7 @@ async fn fetch_and_store_block_info(
                                                                         for vout in tx.vout {
                                                                             println!("Processing vout: {:?}", vout);
                                                                             if let Some(script) = &vout.script_pub_key {
-                                                                                println!("ScriptPubKey found: {:?}", script);
+                                                                                // println!("ScriptPubKey found: {:?}", script);
 
                                                                                 let latest_output: Option<TransactionOutput> = transaction_outputs::table
                                                                                     .order(transaction_outputs::id.desc())
@@ -507,17 +523,12 @@ async fn fetch_and_store_block_info(
 
                                                                                 let new_output_id = latest_output.as_ref().map_or(1, |latest| latest.id + 1);
 
-                                                                                // 这里进行克隆
-                                                                                let address = vout.script_pub_key
-                                                                                    .as_ref()
-                                                                                    .map(|script| script.addresses.join(", "))
-                                                                                    .unwrap_or_default()
-                                                                                    .clone();
+                                                                                let address = script.addresses.join(", ");
 
                                                                                 let new_output = TransactionOutput {
                                                                                     id: new_output_id,
                                                                                     transaction_id: new_tx_id,
-                                                                                    address: address.clone(), // 克隆后的值
+                                                                                    address: address.clone(),
                                                                                     value: vout.value as i64,
                                                                                 };
 
@@ -529,7 +540,29 @@ async fn fetch_and_store_block_info(
                                                                                     Err(e) => eprintln!("Error inserting transaction output: {}", e),
                                                                                 }
                                                                             } else {
-                                                                                println!("No script_pub_key found for vout. Here is the full vout: {:?}", vout);
+                                                                                // 即使没有 script_pub_key 也存储其他信息
+                                                                                let latest_output: Option<TransactionOutput> = transaction_outputs::table
+                                                                                    .order(transaction_outputs::id.desc())
+                                                                                    .first(&mut conn)
+                                                                                    .optional()
+                                                                                    .expect("Error querying latest transaction output");
+
+                                                                                let new_output_id = latest_output.as_ref().map_or(1, |latest| latest.id + 1);
+
+                                                                                let new_output = TransactionOutput {
+                                                                                    id: new_output_id,
+                                                                                    transaction_id: new_tx_id,
+                                                                                    address: "".to_string(), // 空地址
+                                                                                    value: vout.value as i64,
+                                                                                };
+
+                                                                                match diesel::insert_into(transaction_outputs::table)
+                                                                                    .values(&new_output)
+                                                                                    .execute(&mut conn)
+                                                                                {
+                                                                                    Ok(_) => println!("Successfully inserted new transaction output without address"),
+                                                                                    Err(e) => eprintln!("Error inserting transaction output: {}", e),
+                                                                                }
                                                                             }
                                                                         }
 
