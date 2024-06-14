@@ -8,6 +8,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    block_heights (id) {
+        id -> Int4,
+        height -> Int4,
+    }
+}
+
+diesel::table! {
     block_info (id) {
         id -> Int4,
         height -> Int4,
@@ -19,6 +26,20 @@ diesel::table! {
         weight -> Int4,
     }
 }
+
+diesel::table! {
+    offchain_data (id) {
+        id -> Int4,
+        block_height -> Int4,
+        btc_price -> Float8,
+        market_sentiment -> Float8,
+        volume -> Float8,
+        high -> Float8,
+        low -> Float8,
+        timestamp -> Timestamp,
+    }
+}
+
 
 diesel::table! {
     transaction_inputs (id) {
@@ -54,7 +75,9 @@ diesel::joinable!(transaction_outputs -> transactions (transaction_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     block_height,
+    block_heights,
     block_info,
+    offchain_data,
     transaction_inputs,
     transaction_outputs,
     transactions,
