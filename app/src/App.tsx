@@ -4,6 +4,7 @@ import { Container, Navbar, Nav } from 'react-bootstrap';
 import BlockHeightComponent from './BlockHeightComponent';
 import BlockDetail from './BlockDetail';
 import OffchainComponent from './OffchainComponent';
+import RealTimeChart from './RealTimeChart';
 
 const App: React.FC = () => {
     return (
@@ -15,6 +16,7 @@ const App: React.FC = () => {
                     <Nav className="me-auto">
                         <Nav.Link as={Link} to="/">On-Chain Data</Nav.Link>
                         <Nav.Link as={Link} to="/offchain">Off-Chain Data</Nav.Link>
+                        <Nav.Link as={Link} to="/realtime">Real-Time Chart</Nav.Link>
                     </Nav>
                 </Navbar.Collapse>
             </Navbar>
@@ -22,6 +24,7 @@ const App: React.FC = () => {
                 <Route path="/" element={<BlockHeightComponent />} />
                 <Route path="/block/:height" element={<BlockDetail />} />
                 <Route path="/offchain" element={<OffchainComponent />} />
+                <Route path="/realtime" element={<RealTimeChart />} />
             </Routes>
         </Container>
     );
