@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Container, Table, Pagination } from 'react-bootstrap';
+import "./BlockHeightComponent.css";
 
 interface BlockInfo {
     height: number;
@@ -60,7 +61,7 @@ const BlockHeightComponent: React.FC = () => {
                 ))}
                 </tbody>
             </Table>
-            <Pagination>
+            <Pagination className="justify-content-center">
                 <Pagination.Prev onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} />
                 <Pagination.Item>{currentPage}</Pagination.Item>
                 <Pagination.Next onClick={() => paginate(currentPage + 1)} disabled={indexOfLastBlock >= blockData.length} />

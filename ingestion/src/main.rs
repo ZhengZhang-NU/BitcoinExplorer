@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};// connection pool
 use dotenv::dotenv;//.env
@@ -38,15 +39,15 @@ pub struct OffchainData {
 async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, data: OffchainData) -> Result<(), diesel::result::Error> {
     let mut conn = pool.get().expect("Failed to get connection from pool");
 
-    // check the same height
+    // 检查是否存在相同区块高度和 BTC 价格的记录
     let existing_data = offchain_data::table
         .filter(offchain_data::block_height.eq(data.block_height))
-        .filter(offchain_data::timestamp.eq(data.timestamp))
+        .filter(offchain_data::btc_price.eq(data.btc_price))
         .first::<OffchainData>(&mut conn)
         .optional()?;
 
     if existing_data.is_none() {
-        // insert new record
+        // 插入新记录
         match diesel::insert_into(offchain_data::table)
             .values(&data)
             .execute(&mut conn) {
@@ -60,10 +61,20 @@ async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<P
             }
         }
     } else {
-        println!("Record with same block height and timestamp exists. Skipping insert.");
+
+        diesel::update(offchain_data::table.find(existing_data.unwrap().id))
+            .set((
+                offchain_data::market_sentiment.eq(data.market_sentiment),
+                offchain_data::volume.eq(data.volume),
+                offchain_data::high.eq(data.high),
+                offchain_data::low.eq(data.low),
+                offchain_data::timestamp.eq(data.timestamp),
+            ))
+            .execute(&mut conn)?;
         Ok(())
     }
 }
+
 
 async fn fetch_and_store_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, block_height: i32) {
     let client = reqwest::Client::new();
@@ -456,7 +467,7 @@ async fn fetch_and_store_block_info(
                                                         if txs_res.status().is_success() {
                                                             if let Ok(txs_text) = txs_res.text().await {
                                                                 if let Ok(txs) = serde_json::from_str::<Vec<ApiTransaction>>(&txs_text) {
-                                                                    for tx in txs {
+                                                                    for mut tx in txs {
                                                                         let latest_tx: Option<Transaction> = transactions::table
                                                                             .order(transactions::id.desc())
                                                                             .first(&mut conn)
@@ -491,7 +502,7 @@ async fn fetch_and_store_block_info(
 
                                                                             let value = vin.prevout.as_ref().map_or(0, |prevout| prevout.value);
 
-                                                                            // println!("Inserting input with value: {}", value);  // 打印插入的值
+
 
                                                                             let new_input = TransactionInput {
                                                                                 id: new_input_id,
@@ -509,6 +520,7 @@ async fn fetch_and_store_block_info(
                                                                             }
                                                                         }
 
+//=========================================================================
                                                                         for vout in tx.vout {
                                                                             println!("Processing vout: {:?}", vout);
                                                                             if let Some(script) = &vout.script_pub_key {
@@ -566,6 +578,11 @@ async fn fetch_and_store_block_info(
                                                                         }
 
 
+
+
+
+//==========================================================================
+
                                                                     }
                                                                 }
                                                             }
@@ -586,3 +603,4 @@ async fn fetch_and_store_block_info(
         *is_fetching_guard = false;
     }
 }
+

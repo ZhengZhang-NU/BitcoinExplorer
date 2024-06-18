@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Container, Table } from 'react-bootstrap';
+import "./OffchainComponent.css";
 
 interface OffchainData {
     id: number;
@@ -18,7 +19,10 @@ const OffchainComponent: React.FC = () => {
     useEffect(() => {
         fetch('http://localhost:8000/offchain-data')
             .then(response => response.json())
-            .then(data => setOffchainData(data));
+            .then((data: OffchainData[]) => {
+                const sortedData = data.sort((a, b) => b.block_height - a.block_height);
+                setOffchainData(sortedData);
+            });
     }, []);
 
     return (

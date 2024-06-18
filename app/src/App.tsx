@@ -5,15 +5,16 @@ import BlockHeightComponent from './BlockHeightComponent';
 import BlockDetail from './BlockDetail';
 import OffchainComponent from './OffchainComponent';
 import RealTimeChart from './RealTimeChart';
+import 'bootstrap/dist/css/bootstrap.min.css';
 
 const App: React.FC = () => {
     return (
-        <Container>
-            <Navbar bg="light" expand="lg">
+        <Container fluid>
+            <Navbar bg="dark" expand="lg">
                 <Navbar.Brand href="/">Blockchain Explorer</Navbar.Brand>
                 <Navbar.Toggle aria-controls="basic-navbar-nav" />
                 <Navbar.Collapse id="basic-navbar-nav">
-                    <Nav className="me-auto">
+                    <Nav className="ms-auto">
                         <Nav.Link as={Link} to="/">On-Chain Data</Nav.Link>
                         <Nav.Link as={Link} to="/offchain">Off-Chain Data</Nav.Link>
                         <Nav.Link as={Link} to="/realtime">Real-Time Chart</Nav.Link>
