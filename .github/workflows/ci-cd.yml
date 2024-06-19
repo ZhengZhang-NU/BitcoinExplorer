@@ -20,7 +20,7 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
         ports:
-          - 5432:5432
+          - ${{ job.services.postgres.ports[0] }}:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -35,6 +35,7 @@ jobs:
         run: |
           echo "APP_PORT=$(shuf -i 1024-65535 -n 1)" >> $GITHUB_ENV
           echo "INGESTION_PORT=$(shuf -i 1024-65535 -n 1)" >> $GITHUB_ENV
+          echo "POSTGRES_PORT=$(shuf -i 1024-65535 -n 1)" >> $GITHUB_ENV
 
       - name: Set up Node.js
         uses: actions/setup-node@v2
@@ -72,7 +73,8 @@ jobs:
           sudo lsof -i :5432 -t | xargs -r sudo kill -9
 
       - name: Docker Compose Build and Run
-        run: docker-compose up --build -d
+        run: |
+          docker-compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
 
       - name: Wait for services to be healthy
         run: |
