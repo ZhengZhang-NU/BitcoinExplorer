@@ -36,18 +36,26 @@ CREATE TABLE transaction_outputs (
                                      FOREIGN KEY (transaction_id) REFERENCES transactions (id)
 );
 
-DROP TABLE IF EXISTS offchain_data;
 
-CREATE TABLE offchain_data (
-                               id SERIAL PRIMARY KEY,
-                               block_height INTEGER NOT NULL,
-                               btc_price DOUBLE PRECISION NOT NULL,
-                               market_sentiment DOUBLE PRECISION,
-                               volume DOUBLE PRECISION,
-                               high DOUBLE PRECISION,
-                               low DOUBLE PRECISION,
-                               timestamp TIMESTAMP NOT NULL
+
+CREATE TABLE IF NOT EXISTS offchain_data (
+                                             id SERIAL PRIMARY KEY,
+                                             block_height INTEGER NOT NULL,
+                                             btc_price DOUBLE PRECISION NOT NULL,
+                                             market_sentiment DOUBLE PRECISION,
+                                             volume DOUBLE PRECISION,
+                                             high DOUBLE PRECISION,
+                                             low DOUBLE PRECISION,
+                                             timestamp TIMESTAMP NOT NULL
 );
 
 
+CREATE SEQUENCE IF NOT EXISTS offchain_data_id_seq;
 
+
+ALTER TABLE offchain_data ALTER COLUMN id SET DEFAULT nextval('offchain_data_id_seq');
+
+
+DELETE FROM offchain_data WHERE id = 0;
+
+SELECT setval('offchain_data_id_seq', COALESCE((SELECT MAX(id) FROM offchain_data), 1) + 1, false);

@@ -35,11 +35,10 @@ pub struct OffchainData {
 
 
 
-
 async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, data: OffchainData) -> Result<(), diesel::result::Error> {
     let mut conn = pool.get().expect("Failed to get connection from pool");
 
-
+    // Check if data already exists
     let existing_data = offchain_data::table
         .filter(offchain_data::block_height.eq(data.block_height))
         .filter(offchain_data::btc_price.eq(data.btc_price))
@@ -47,9 +46,19 @@ async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<P
         .optional()?;
 
     if existing_data.is_none() {
+        // Insert new data without specifying the ID
+        let new_data = (
+            offchain_data::block_height.eq(data.block_height),
+            offchain_data::btc_price.eq(data.btc_price),
+            offchain_data::market_sentiment.eq(data.market_sentiment),
+            offchain_data::volume.eq(data.volume),
+            offchain_data::high.eq(data.high),
+            offchain_data::low.eq(data.low),
+            offchain_data::timestamp.eq(data.timestamp),
+        );
 
         match diesel::insert_into(offchain_data::table)
-            .values(&data)
+            .values(&new_data)
             .execute(&mut conn) {
             Ok(_) => {
                 println!("Data inserted successfully");
@@ -61,7 +70,6 @@ async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<P
             }
         }
     } else {
-
         diesel::update(offchain_data::table.find(existing_data.unwrap().id))
             .set((
                 offchain_data::market_sentiment.eq(data.market_sentiment),
@@ -74,6 +82,8 @@ async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<P
         Ok(())
     }
 }
+
+
 
 
 async fn fetch_and_store_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, block_height: i32) {
