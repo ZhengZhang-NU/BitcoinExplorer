@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ./app
+    ports:
+      - "80:80"
+    environment:
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/bitcoin_explorer
+    depends_on:
+      - postgres
+
+  ingestion:
+    build:
+      context: ./ingestion
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/bitcoin_explorer
+
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: bitcoin_explorer
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql

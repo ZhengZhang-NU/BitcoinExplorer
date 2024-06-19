@@ -1,0 +1,74 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_DB: bitcoin_explorer
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: ./app
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./app
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Rust dependencies
+        run: cargo build --release
+        working-directory: ./ingestion
+
+      - name: Run backend tests
+        run: cargo test --release
+        working-directory: ./ingestion
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: ./app
+
+      - name: Docker Compose Build and Run
+        run: docker-compose up --build -d
+
+      - name: Wait for services to be healthy
+        run: docker-compose exec postgres pg_isready -U postgres -d bitcoin_explorer
+
+      - name: Test API endpoint
+        run: |
+          sudo apt-get install -y jq
+          curl http://localhost:8000/block-info | jq

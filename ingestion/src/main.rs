@@ -324,7 +324,7 @@ async fn main() {
 
     println!("Starting server...");
     warp::serve(block_info_route.or(block_detail_route).or(offchain_data_route))
-        .run(([127, 0, 0, 1], 8000))
+        .run(([0, 0, 0, 0], 8000))
         .await;
 }
 
