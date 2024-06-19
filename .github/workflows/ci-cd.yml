@@ -66,7 +66,7 @@ jobs:
         run: docker-compose up --build -d
 
       - name: Wait for services to be healthy
-        run: docker-compose exec postgres pg_isready -U postgres -d bitcoin_explorer
+        run: docker-compose exec -T postgres pg_isready -U postgres -d bitcoin_explorer
 
       - name: Test API endpoint
         run: |
