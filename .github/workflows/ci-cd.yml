@@ -62,6 +62,10 @@ jobs:
         run: npm test -- --passWithNoTests
         working-directory: ./app
 
+      - name: Stop any service using port 5432
+        run: |
+          sudo lsof -i :5432 -t | xargs -r sudo kill -9
+
       - name: Docker Compose Build and Run
         run: docker-compose up --build -d
 
