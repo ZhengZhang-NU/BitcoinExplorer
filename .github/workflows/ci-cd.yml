@@ -20,7 +20,7 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
         ports:
-          - 5434:5432
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -66,9 +66,21 @@ jobs:
         run: docker-compose up --build -d
 
       - name: Wait for services to be healthy
-        run: docker-compose exec -T postgres pg_isready -U postgres -d bitcoin_explorer
+        run: |
+          echo "Waiting for Postgres to be healthy..."
+          until docker-compose exec -T postgres pg_isready -U postgres -d bitcoin_explorer; do
+            echo "Waiting for Postgres..."
+            sleep 10
+          done
 
       - name: Test API endpoint
         run: |
           sudo apt-get install -y jq
-          curl http://localhost:8000/block-info | jq
+          for i in {1..5}; do
+            curl http://localhost:8000/block-info | jq && break
+            echo "Waiting for API endpoint..."
+            sleep 10
+          done
+
+      - name: Docker Compose Down
+        run: docker-compose down
