@@ -36,6 +36,8 @@ CREATE TABLE transaction_outputs (
                                      FOREIGN KEY (transaction_id) REFERENCES transactions (id)
 );
 
+DROP TABLE IF EXISTS offchain_data;
+
 CREATE TABLE offchain_data (
                                id SERIAL PRIMARY KEY,
                                block_height INTEGER NOT NULL,
@@ -46,3 +48,6 @@ CREATE TABLE offchain_data (
                                low DOUBLE PRECISION,
                                timestamp TIMESTAMP NOT NULL
 );
+
+
+

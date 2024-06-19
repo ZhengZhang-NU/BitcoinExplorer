@@ -39,7 +39,7 @@ pub struct OffchainData {
 async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<PgConnection>>>, data: OffchainData) -> Result<(), diesel::result::Error> {
     let mut conn = pool.get().expect("Failed to get connection from pool");
 
-    // 检查是否存在相同区块高度和 BTC 价格的记录
+
     let existing_data = offchain_data::table
         .filter(offchain_data::block_height.eq(data.block_height))
         .filter(offchain_data::btc_price.eq(data.btc_price))
@@ -47,7 +47,7 @@ async fn insert_or_update_offchain_data(pool: Arc<r2d2::Pool<ConnectionManager<P
         .optional()?;
 
     if existing_data.is_none() {
-        // 插入新记录
+
         match diesel::insert_into(offchain_data::table)
             .values(&data)
             .execute(&mut conn) {
