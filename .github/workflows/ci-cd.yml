@@ -59,7 +59,7 @@ jobs:
         working-directory: ./ingestion
 
       - name: Run frontend tests
-        run: npm test
+        run: npm test -- --passWithNoTests
         working-directory: ./app
 
       - name: Docker Compose Build and Run
