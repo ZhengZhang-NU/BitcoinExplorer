@@ -605,6 +605,9 @@ async fn fetch_and_store_block_info(
                                 }
                             }
                         }
+
+
+
                     }
                 }
             }
