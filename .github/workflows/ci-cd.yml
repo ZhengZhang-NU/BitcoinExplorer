@@ -74,7 +74,7 @@ jobs:
 
       - name: Docker Compose Build and Run
         run: |
-          docker-compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
+          docker-compose -f docker-compose.yml up --build -d
 
       - name: Wait for services to be healthy
         run: |
